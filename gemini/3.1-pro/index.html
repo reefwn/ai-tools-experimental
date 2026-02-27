@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automotive Engineering - Exploded View</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0D0D0F;
+            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+            /* Hide scrollbar for cleaner look, but keep functionality */
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        body::-webkit-scrollbar {
+            display: none;
+        }
+
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            /* Allow clicks to pass through empty space if needed, but we want orbital controls */
+            pointer-events: auto; 
+        }
+
+        /* The scroll track */
+        .scroll-sequence {
+            position: relative;
+            height: 400vh; /* 4 screens tall for smooth scrubbing */
+            z-index: 10;
+            pointer-events: none; /* Let pointer events fall through to canvas */
+        }
+
+        .ui-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100vh;
+            z-index: 20;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 5vw;
+        }
+
+        .ui-content {
+            max-width: 600px;
+            pointer-events: auto; /* Make buttons clickable */
+        }
+
+        .glass-panel {
+            background: rgba(13, 13, 15, 0.4);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .hint-container {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            opacity: 0.6;
+            transition: opacity 0.3s ease;
+        }
+        
+        .hint-container:hover {
+            opacity: 1;
+        }
+
+        .mouse-icon {
+            width: 24px;
+            height: 36px;
+            border: 2px solid rgba(255, 255, 255, 0.6);
+            border-radius: 12px;
+            position: relative;
+            margin-bottom: 8px;
+        }
+
+        .mouse-wheel {
+            width: 4px;
+            height: 8px;
+            background: #fff;
+            border-radius: 2px;
+            position: absolute;
+            top: 6px;
+            left: 50%;
+            transform: translateX(-50%);
+            animation: scrollWheel 1.5s infinite;
+        }
+
+        @keyframes scrollWheel {
+            0% { top: 6px; opacity: 1; }
+            100% { top: 18px; opacity: 0; }
+        }
+
+        /* Loading Screen */
+        #loader {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #0D0D0F;
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 1s ease;
+        }
+        .spinner {
+            width: 50px; height: 50px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <!-- Loading Screen -->
+    <div id="loader">
+        <div class="flex flex-col items-center">
+            <div class="spinner mb-4"></div>
+            <div class="text-sm tracking-widest text-gray-400 uppercase">Initializing Engine</div>
+        </div>
+    </div>
+
+    <!-- 3D Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- Scroll Track (invisible, creates scrollbar height) -->
+    <div class="scroll-sequence" id="scroll-track"></div>
+
+    <!-- Fixed UI Overlay -->
+    <div class="ui-layer">
+        <div class="ui-content glass-panel p-8 rounded-2xl transform transition duration-1000 translate-y-4 opacity-0" id="main-ui">
+            <h3 class="text-emerald-400 font-semibold tracking-widest text-sm uppercase mb-3">Project Apex</h3>
+            <h1 class="text-5xl md:text-7xl font-bold leading-tight mb-4 tracking-tighter">
+                Engineered <br><span class="text-gray-400">Precision.</span>
+            </h1>
+            <p class="text-gray-300 text-lg mb-8 max-w-md font-light leading-relaxed">
+                Experience aerodynamic perfection. Scroll to deconstruct the architecture and explore the core mechanics in full 360° space.
+            </p>
+            <div class="flex flex-wrap gap-4">
+                <button class="bg-white text-black px-8 py-3 rounded-full font-semibold hover:bg-gray-200 transition duration-300 flex items-center">
+                    Reserve Now
+                </button>
+                <button class="border border-gray-600 px-8 py-3 rounded-full font-semibold hover:border-white transition duration-300">
+                    View Specs
+                </button>
+            </div>
+        </div>
+
+        <div class="hint-container pointer-events-auto cursor-pointer" id="scroll-hint">
+            <div class="mouse-icon">
+                <div class="mouse-wheel"></div>
+            </div>
+            <span class="text-xs tracking-widest uppercase font-semibold">Scroll to Disassemble</span>
+            <span class="text-[10px] text-gray-500 mt-1">Drag to Rotate</span>
+        </div>
+
+        <!-- Theme Toggle -->
+        <button id="theme-toggle" style="position:fixed;top:20px;right:20px;z-index:50;pointer-events:auto;width:40px;height:40px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.1);backdrop-filter:blur(8px);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.3s ease;" title="Toggle background">
+            <span id="theme-icon" style="font-size:18px;">☀️</span>
+        </button>
+    </div>
+
+    <!-- Three.js & Plugins -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <!-- GSAP & ScrollTrigger -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
+
+    <script>
+        gsap.registerPlugin(ScrollTrigger);
+
+        // --- SCENE SETUP ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        // Dark matte environment
+        scene.fog = new THREE.FogExp2(0x0D0D0F, 0.02);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(-8, 4, 10);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        // Physically correct lighting settings
+        renderer.physicallyCorrectLights = true;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.5;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 + 0.1; // Prevent going too far below the car
+        controls.minDistance = 5;
+        controls.maxDistance = 20;
+        // Disable scroll wheel zoom so the page can scroll normally
+        controls.enableZoom = false; 
+
+        // --- LIGHTING (Cinematic Studio Setup) ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const mainLight = new THREE.SpotLight(0xffffff, 5);
+        mainLight.position.set(5, 10, 5);
+        mainLight.angle = Math.PI / 4;
+        mainLight.penumbra = 0.5;
+        mainLight.castShadow = true;
+        mainLight.shadow.bias = -0.0001;
+        scene.add(mainLight);
+
+        const fillLight = new THREE.DirectionalLight(0x4466ff, 2);
+        fillLight.position.set(-5, 3, -5);
+        scene.add(fillLight);
+
+        const rimLight = new THREE.DirectionalLight(0xffaa44, 3);
+        rimLight.position.set(0, 5, -10);
+        scene.add(rimLight);
+
+        // --- MATERIALS (Premium Automotive) ---
+        const matBody = new THREE.MeshPhysicalMaterial({
+            color: 0xff6600, // Electric Orange
+            metalness: 0.8,
+            roughness: 0.3,
+            clearcoat: 1.0,
+            clearcoatRoughness: 0.1,
+        });
+
+        const matGlass = new THREE.MeshPhysicalMaterial({
+            color: 0x000000,
+            metalness: 0.9,
+            roughness: 0.1,
+            transmission: 0.9, // Glass effect
+            transparent: true,
+            opacity: 1
+        });
+
+        const matChassis = new THREE.MeshStandardMaterial({
+            color: 0x222222,
+            metalness: 0.9,
+            roughness: 0.6,
+        });
+
+        const matWheel = new THREE.MeshStandardMaterial({
+            color: 0x2a2a2a,
+            roughness: 0.95,
+            metalness: 0.05
+        });
+
+        const matRim = new THREE.MeshStandardMaterial({
+            color: 0xeeeeee,
+            metalness: 0.8,
+            roughness: 0.3
+        });
+
+        const matEngine = new THREE.MeshStandardMaterial({
+            color: 0x555555,
+            metalness: 0.8,
+            roughness: 0.4
+        });
+        
+        const matGlow = new THREE.MeshBasicMaterial({
+            color: 0x00ff88,
+        });
+
+        // --- PROCEDURAL CAR CONSTRUCTION ---
+        // Grouping allows us to move parts independently
+        const car = new THREE.Group();
+        scene.add(car);
+
+        // Utility to create meshes with shadows
+        function createMesh(geometry, material, castShadow = true) {
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.castShadow = castShadow;
+            mesh.receiveShadow = true;
+            return mesh;
+        }
+
+        // 1. Chassis (Base plate)
+        const chassisGroup = new THREE.Group();
+        const chassisGeo = new THREE.BoxGeometry(3.8, 0.2, 8);
+        const chassis = createMesh(chassisGeo, matBody);
+        chassis.position.y = 0.5;
+        chassisGroup.add(chassis);
+        car.add(chassisGroup);
+
+        // 2. Main Body (Rear & sides)
+        const bodyGroup = new THREE.Group();
+        const bodyGeo = new THREE.BoxGeometry(4, 1.2, 5);
+        const body = createMesh(bodyGeo, matBody);
+        body.position.set(0, 1.2, -1.5);
+        bodyGroup.add(body);
+        
+        // Add subtle tail lights
+        const tailGeo = new THREE.BoxGeometry(3.6, 0.1, 0.1);
+        const matTail = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0x550000 });
+        const tail = createMesh(tailGeo, matTail);
+        tail.position.set(0, 1.4, -3.95);
+        bodyGroup.add(tail);
+        car.add(bodyGroup);
+
+        // 3. Hood (Front cover)
+        const hoodGroup = new THREE.Group();
+        const hoodGeo = new THREE.BoxGeometry(3.8, 0.6, 2.8);
+        const hood = createMesh(hoodGeo, matBody);
+        hood.position.set(0, 1.1, 2.5);
+        
+        // Headlights
+        const headGeo = new THREE.BoxGeometry(0.8, 0.1, 0.1);
+        const matHead = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.5 });
+        const headL = createMesh(headGeo, matHead);
+        headL.position.set(-1.2, 1.2, 3.85);
+        const headR = headL.clone();
+        headR.position.set(1.2, 1.2, 3.85);
+        
+        hoodGroup.add(hood, headL, headR);
+        car.add(hoodGroup);
+
+        // 4. Doors
+        const doorGeo = new THREE.BoxGeometry(0.2, 1.0, 2.5);
+        
+        const doorLGroup = new THREE.Group();
+        const doorL = createMesh(doorGeo, matBody);
+        doorL.position.set(-2.0, 1.1, 0.5);
+        doorLGroup.add(doorL);
+        car.add(doorLGroup);
+
+        const doorRGroup = new THREE.Group();
+        const doorR = createMesh(doorGeo, matBody);
+        doorR.position.set(2.0, 1.1, 0.5);
+        doorRGroup.add(doorR);
+        car.add(doorRGroup);
+
+        // 5. Glass / Canopy
+        const glassGroup = new THREE.Group();
+        const glassGeo = new THREE.BoxGeometry(3.4, 0.8, 3.5);
+        const glass = createMesh(glassGeo, matBody);
+        glass.position.set(0, 2.2, -0.5);
+        glassGroup.add(glass);
+        car.add(glassGroup);
+
+        // 6. Engine Core (Hidden under hood, revealed on explode)
+        const engineGroup = new THREE.Group();
+        const blockGeo = new THREE.BoxGeometry(1.5, 0.8, 1.5);
+        const engineBlock = createMesh(blockGeo, matEngine);
+        engineBlock.position.set(0, 0.8, 2.5);
+        
+        const cylinderGeo = new THREE.CylinderGeometry(0.2, 0.2, 1.0, 16);
+        cylinderGeo.rotateZ(Math.PI / 2);
+        for(let i=0; i<3; i++) {
+            const cyl = createMesh(cylinderGeo, matRim);
+            cyl.position.set(0, 1.3, 2.0 + (i * 0.4));
+            engineGroup.add(cyl);
+        }
+        
+        const glowCore = createMesh(new THREE.BoxGeometry(0.5, 0.1, 0.5), matGlow, false);
+        glowCore.position.set(0, 1.0, 2.5);
+        
+        engineGroup.add(engineBlock, glowCore);
+        car.add(engineGroup);
+
+        // 7. Wheels
+        const wheelGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.4, 32);
+        wheelGeo.rotateZ(Math.PI / 2);
+        const rimGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.45, 16);
+        rimGeo.rotateZ(Math.PI / 2);
+
+        function createWheel(x, z) {
+            const group = new THREE.Group();
+            const tire = createMesh(wheelGeo, matWheel);
+            const rim = createMesh(rimGeo, matRim);
+            group.add(tire, rim);
+            group.position.set(x, 0.7, z);
+            return group;
+        }
+
+        const wheelFL = createWheel(-2.1, 2.5);
+        const wheelFR = createWheel(2.1, 2.5);
+        const wheelRL = createWheel(-2.1, -2.5);
+        const wheelRR = createWheel(2.1, -2.5);
+        
+        car.add(wheelFL, wheelFR, wheelRL, wheelRR);
+
+        // Center the car group
+        car.position.y = -1;
+
+        // Add a subtle grid floor for scale
+        const gridHelper = new THREE.GridHelper(50, 50, 0x333333, 0x111111);
+        gridHelper.position.y = -1;
+        scene.add(gridHelper);
+
+        // --- ANIMATION TIMELINES (The "Exploded View" Logic) ---
+        // Save original positions implicitly by animating "from" their current state "to" an offset state
+        
+        const tl = gsap.timeline({
+            scrollTrigger: {
+                trigger: "#scroll-track",
+                start: "top top",
+                end: "bottom bottom",
+                scrub: 1.5, // Smooth scrubbing
+            }
+        });
+
+        // 1. Move Wheels Outward
+        const wheelDist = 1.5;
+        tl.to(wheelFL.position, { x: `-=${wheelDist}`, ease: "power2.inOut" }, 0);
+        tl.to(wheelRL.position, { x: `-=${wheelDist}`, ease: "power2.inOut" }, 0);
+        tl.to(wheelFR.position, { x: `+=${wheelDist}`, ease: "power2.inOut" }, 0);
+        tl.to(wheelRR.position, { x: `+=${wheelDist}`, ease: "power2.inOut" }, 0);
+
+        // 2. Open Doors Outward & Up (Gullwing style)
+        tl.to(doorLGroup.position, { x: -1.5, y: 0.5, ease: "power2.inOut" }, 0.1);
+        tl.to(doorLGroup.rotation, { z: -Math.PI/6, ease: "power2.inOut" }, 0.1);
+        tl.to(doorRGroup.position, { x: 1.5, y: 0.5, ease: "power2.inOut" }, 0.1);
+        tl.to(doorRGroup.rotation, { z: Math.PI/6, ease: "power2.inOut" }, 0.1);
+
+        // 3. Lift Hood
+        tl.to(hoodGroup.position, { y: 2.0, z: 1.5, ease: "power2.inOut" }, 0.2);
+        tl.to(hoodGroup.rotation, { x: -Math.PI/8, ease: "power2.inOut" }, 0.2);
+
+        // 4. Lift Body & Glass
+        tl.to(bodyGroup.position, { y: 1.5, z: -1, ease: "power2.inOut" }, 0.3);
+        tl.to(glassGroup.position, { y: 3.5, ease: "power2.inOut" }, 0.35);
+
+        // 5. Engine raises and glows brighter
+        tl.to(engineGroup.position, { y: 1.0, ease: "power2.inOut" }, 0.4);
+        tl.to(matGlow, { color: new THREE.Color(0x00ffcc), ease: "none" }, 0.4);
+
+        // 6. Camera Movement during scroll (Cinematic sweep)
+        tl.to(camera.position, {
+            x: 8,
+            y: 6,
+            z: 12,
+            ease: "power1.inOut"
+        }, 0);
+
+        // 7. Hide UI text and its box on scroll
+        const mainUI = document.getElementById('main-ui');
+        const scrollHint = document.getElementById('scroll-hint');
+        tl.to(mainUI, { opacity: 0, y: -30, duration: 0.15, ease: "power2.in" }, 0);
+        tl.to(scrollHint, { opacity: 0, y: 20, duration: 0.1, ease: "power2.in" }, 0);
+
+
+        // --- IDLE ANIMATION ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const elapsedTime = clock.getElapsedTime();
+
+            // Subtle floating effect for the entire car (idle animation)
+            // Only noticeable when not scrolling fast
+            car.position.y = -1 + Math.sin(elapsedTime * 1.5) * 0.05;
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- INITIALIZATION & RESIZE ---
+        window.onload = () => {
+            // Remove loader
+            const loader = document.getElementById('loader');
+            loader.style.opacity = '0';
+            setTimeout(() => loader.remove(), 1000);
+
+            // Intro UI Animation
+            setTimeout(() => {
+                const ui = document.getElementById('main-ui');
+                ui.classList.remove('opacity-0', 'translate-y-4');
+            }, 500);
+
+            // Intro Camera Sweep
+            gsap.from(camera.position, {
+                x: 15, y: 10, z: -15,
+                duration: 2.5,
+                ease: "power3.out",
+                onUpdate: () => controls.update()
+            });
+
+            animate();
+        };
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Hide scroll hint when user actually scrolls
+        let hintHidden = false;
+        window.addEventListener('scroll', () => {
+            if(!hintHidden && window.scrollY > 50) {
+                document.getElementById('scroll-hint').style.opacity = '0';
+                hintHidden = true;
+            }
+        });
+
+        // Double click to reset view
+        window.addEventListener('dblclick', () => {
+            gsap.to(camera.position, {
+                x: -8, y: 4, z: 10,
+                duration: 1.5,
+                ease: "power2.inOut"
+            });
+            controls.target.set(0,0,0);
+        });
+
+        // Theme toggle
+        let isDark = true;
+        document.getElementById('theme-toggle').addEventListener('click', () => {
+            isDark = !isDark;
+            const bg = isDark ? 0x0D0D0F : 0xffffff;
+            const textColor = isDark ? '#ffffff' : '#111111';
+            const gridColors = isDark ? [0x333333, 0x111111] : [0xcccccc, 0xe0e0e0];
+            document.body.style.backgroundColor = isDark ? '#0D0D0F' : '#ffffff';
+            document.body.style.color = textColor;
+            scene.fog = new THREE.FogExp2(bg, isDark ? 0.02 : 0.015);
+            gridHelper.colorCenterLine.set(gridColors[0]);
+            gridHelper.colorGrid.set(gridColors[1]);
+            gridHelper.material.needsUpdate = true;
+            document.getElementById('theme-icon').textContent = isDark ? '☀️' : '🌙';
+            const btn = document.getElementById('theme-toggle');
+            btn.style.borderColor = isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';
+            btn.style.background = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+        });
+
+    </script>
+</body>
+</html>
